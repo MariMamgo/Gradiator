@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -17,6 +16,7 @@ import Navbar from "@/components/Navbar";
 import { Assignment, Submission } from "@/types/education";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import AssignmentAnalyzer from "@/components/AssignmentAnalyzer";
 
 const Subject = () => {
   const { subjectId } = useParams();
@@ -589,7 +589,6 @@ const Subject = () => {
             </TabsContent>
           </Tabs>
         ) : (
-          // Grader View
           <Tabs defaultValue="materials">
             <TabsList className="mb-6">
               <TabsTrigger value="materials">Class Materials</TabsTrigger>
@@ -971,12 +970,15 @@ const Subject = () => {
                                 Average Grade: {assignment.grade}/{assignment.maxGrade}
                               </span>
                             </div>
-                            <Button 
-                              size="sm"
-                              onClick={() => handleViewSubmissions(assignment.id)}
-                            >
-                              View Submissions
-                            </Button>
+                            <div className="flex gap-2">
+                              <AssignmentAnalyzer assignment={assignment} />
+                              <Button 
+                                size="sm"
+                                onClick={() => handleViewSubmissions(assignment.id)}
+                              >
+                                View Submissions
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -994,7 +996,6 @@ const Subject = () => {
           </Tabs>
         )}
         
-        {/* Submission Dialog */}
         <Dialog open={showSubmissionsDialog} onOpenChange={setShowSubmissionsDialog}>
           <DialogContent className="sm:max-w-[800px]">
             <DialogHeader>
@@ -1057,7 +1058,6 @@ const Subject = () => {
           </DialogContent>
         </Dialog>
         
-        {/* Submission Details Dialog */}
         <Dialog open={showSubmissionDetailsDialog} onOpenChange={setShowSubmissionDetailsDialog}>
           <DialogContent>
             <DialogHeader>
@@ -1155,7 +1155,6 @@ const Subject = () => {
           </DialogContent>
         </Dialog>
         
-        {/* Review Appeal Dialog */}
         <Dialog open={showReviewAppealDialog} onOpenChange={setShowReviewAppealDialog}>
           <DialogContent>
             <DialogHeader>
