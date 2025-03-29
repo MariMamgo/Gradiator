@@ -214,7 +214,7 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           studentName: userName,
           files,
           submittedAt: new Date().toISOString(),
-          status: "submitted" as AssignmentStatus,
+          status: "submitted" as SubmissionStatus,
           grade: 0,
           feedback: ""
         };
