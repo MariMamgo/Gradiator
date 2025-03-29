@@ -17,6 +17,8 @@ import { Assignment, Submission } from "@/types/education";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import AssignmentAnalyzer from "@/components/AssignmentAnalyzer";
+import SubmissionsList from "@/components/SubmissionsList";
+import MaterialsList from "@/components/MaterialsList";
 
 const Subject = () => {
   const { subjectId } = useParams();
@@ -31,7 +33,9 @@ const Subject = () => {
     getSubmissionsForAssignment,
     gradeSubmission,
     submitAppeal,
-    reviewAppeal
+    reviewAppeal,
+    loading,
+    refreshData
   } = useEducation();
   const navigate = useNavigate();
   
@@ -48,6 +52,19 @@ const Subject = () => {
   const [appealReason, setAppealReason] = useState("");
   const [newGrade, setNewGrade] = useState(0);
   const [newFeedback, setNewFeedback] = useState("");
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-edu-background">
+        <Navbar />
+        <div className="edu-container flex items-center justify-center py-12">
+          <div className="text-center">
+            <p className="text-lg text-muted-foreground">Loading subject details...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
   
   if (!currentUser) {
     navigate("/");
@@ -224,6 +241,7 @@ const Subject = () => {
             <TabsList className="mb-6">
               <TabsTrigger value="homeworks">Homeworks</TabsTrigger>
               <TabsTrigger value="exams">Exams & Quizzes</TabsTrigger>
+              <TabsTrigger value="materials">Materials</TabsTrigger>
             </TabsList>
             
             <TabsContent value="homeworks">
@@ -327,64 +345,72 @@ const Subject = () => {
                 </TabsContent>
                 
                 <TabsContent value="submitted">
-                  <div className="grid gap-4">
-                    {submittedAssignments
-                      .filter(a => a.type === "homework")
-                      .map((assignment) => (
-                        <Card key={assignment.id}>
-                          <CardHeader className="pb-2">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <CardTitle>{assignment.title}</CardTitle>
-                                <CardDescription>
-                                  Submitted: {format(new Date(), "PPP")}
-                                </CardDescription>
-                              </div>
-                              <Badge variant="outline" className="bg-blue-100">
-                                Submitted
-                              </Badge>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-sm mb-4">{assignment.description}</p>
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm text-muted-foreground">
-                                Waiting for grading
-                              </span>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    
-                    {submittedAssignments.filter(a => a.type === "homework").length === 0 && (
-                      <div className="text-center py-12">
-                        <p className="text-muted-foreground">No submitted assignments.</p>
-                      </div>
-                    )}
-                  </div>
+                  <SubmissionsList 
+                    submissions={assignments
+                      .filter(a => a.type === "homework" && a.status === "submitted")
+                      .flatMap(a => a.submissions || [])
+                      .filter(s => s.studentId === currentUser.id)}
+                    assignments={assignments}
+                    title="Your Submitted Homework"
+                    emptyMessage="You haven't submitted any homework yet."
+                  />
                 </TabsContent>
                 
                 <TabsContent value="graded">
+                  <SubmissionsList 
+                    submissions={assignments
+                      .filter(a => a.type === "homework" && a.status === "graded")
+                      .flatMap(a => a.submissions || [])
+                      .filter(s => s.studentId === currentUser.id)}
+                    assignments={assignments}
+                    title="Your Graded Homework"
+                    emptyMessage="You don't have any graded homework yet."
+                  />
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+            
+            <TabsContent value="exams">
+              <SubmissionsList 
+                submissions={assignments
+                  .filter(a => (a.type === "exam" || a.type === "quiz"))
+                  .flatMap(a => a.submissions || [])
+                  .filter(s => s.studentId === currentUser.id)}
+                assignments={assignments}
+                title="Your Exams & Quizzes"
+                emptyMessage="You don't have any exams or quizzes yet."
+              />
+              
+              {examQuizzes.filter(a => a.status === "upcoming").length > 0 && (
+                <div className="mt-8">
+                  <h3 className="text-lg font-medium mb-4">Upcoming Exams & Quizzes</h3>
                   <div className="grid gap-4">
-                    {gradedAssignments
-                      .filter(a => a.type === "homework")
-                      .map((assignment) => (
-                        <Card key={assignment.id}>
-                          <CardHeader className="pb-2">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <CardTitle>{assignment.title}</CardTitle>
-                                <CardDescription>
-                                  Submitted: {format(new Date(assignment.dueDate), "PPP")}
-                                </CardDescription>
-                              </div>
-                              <Badge variant="outline" className="bg-green-100">
-                                Graded
-                              </Badge>
+                    {examQuizzes.filter(a => a.status === "upcoming").map((assignment) => (
+                      <Card key={assignment.id}>
+                        <CardHeader className="pb-2">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <CardTitle>{assignment.title}</CardTitle>
+                              <CardDescription>
+                                {assignment.status === "upcoming"
+                                  ? `Due: ${format(new Date(assignment.dueDate), "PPP")}`
+                                  : `Date: ${format(new Date(assignment.dueDate), "PPP")}`}
+                              </CardDescription>
                             </div>
-                          </CardHeader>
-                          <CardContent>
+                            <Badge>
+                              {assignment.type.charAt(0).toUpperCase() + assignment.type.slice(1)}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm mb-4">{assignment.description}</p>
+                          {assignment.status === "submitted" && (
+                            <div className="flex items-center gap-2 text-sm text-blue-600">
+                              <Clock className="h-4 w-4" />
+                              <span>Submitted, waiting for grading</span>
+                            </div>
+                          )}
+                          {assignment.status === "graded" && assignment.grade !== undefined && (
                             <div className="mb-4">
                               <div className="flex items-center gap-2 mb-2">
                                 <CheckCircle className="h-4 w-4 text-green-600" />
@@ -392,200 +418,150 @@ const Subject = () => {
                                   Grade: {assignment.grade}/{assignment.maxGrade}
                                 </span>
                               </div>
-                              <div className="bg-muted p-3 rounded-md text-sm">
-                                <p className="font-medium mb-1">Feedback:</p>
-                                <p>{assignment.feedback}</p>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    
-                    {gradedAssignments.filter(a => a.type === "homework").length === 0 && (
-                      <div className="text-center py-12">
-                        <p className="text-muted-foreground">No graded assignments yet.</p>
-                      </div>
-                    )}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </TabsContent>
-            
-            <TabsContent value="exams">
-              <div className="grid gap-4">
-                {examQuizzes.map((assignment) => (
-                  <Card key={assignment.id}>
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle>{assignment.title}</CardTitle>
-                          <CardDescription>
-                            {assignment.status === "upcoming"
-                              ? `Due: ${format(new Date(assignment.dueDate), "PPP")}`
-                              : `Date: ${format(new Date(assignment.dueDate), "PPP")}`}
-                          </CardDescription>
-                        </div>
-                        <Badge>
-                          {assignment.type.charAt(0).toUpperCase() + assignment.type.slice(1)}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm mb-4">{assignment.description}</p>
-                      {assignment.status === "submitted" && (
-                        <div className="flex items-center gap-2 text-sm text-blue-600">
-                          <Clock className="h-4 w-4" />
-                          <span>Submitted, waiting for grading</span>
-                        </div>
-                      )}
-                      {assignment.status === "graded" && assignment.grade !== undefined && (
-                        <div className="mb-4">
-                          <div className="flex items-center gap-2 mb-2">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                            <span className="font-medium">
-                              Grade: {assignment.grade}/{assignment.maxGrade}
-                            </span>
-                          </div>
-                          {assignment.feedback && (
-                            <div className="bg-muted p-3 rounded-md text-sm mb-3">
-                              <p className="font-medium mb-1">Feedback:</p>
-                              <p>{assignment.feedback}</p>
-                            </div>
-                          )}
-                          {isAppealable(assignment) && assignment.submissions && assignment.submissions.length > 0 && (
-                            <Dialog open={showAppealDialog} onOpenChange={setShowAppealDialog}>
-                              <DialogTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => handleAppeal(assignment.submissions![0])}
-                                >
-                                  <Flag className="h-4 w-4 mr-2 text-red-500" />
-                                  Appeal Grade
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Appeal Grade</DialogTitle>
-                                  <DialogDescription>
-                                    Explain why you believe your grade should be reconsidered.
-                                    Appeals can be submitted within 5 days of grading.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                  <div>
-                                    <Label htmlFor="appeal-reason">Reason for Appeal</Label>
-                                    <Textarea
-                                      id="appeal-reason"
-                                      placeholder="Explain which parts of your work were incorrectly graded and why"
-                                      value={appealReason}
-                                      onChange={(e) => setAppealReason(e.target.value)}
-                                      className="mt-2"
-                                      rows={5}
-                                    />
-                                  </div>
+                              {assignment.feedback && (
+                                <div className="bg-muted p-3 rounded-md text-sm mb-3">
+                                  <p className="font-medium mb-1">Feedback:</p>
+                                  <p>{assignment.feedback}</p>
                                 </div>
-                                <DialogFooter>
-                                  <Button variant="outline" onClick={() => setShowAppealDialog(false)}>
-                                    Cancel
-                                  </Button>
-                                  <Button onClick={handleSubmitAppeal} disabled={!appealReason.trim()}>
-                                    Submit Appeal
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          )}
-                          {assignment.submissions && assignment.submissions.length > 0 && 
-                            assignment.submissions[0].appeal && (
-                            <div className="mt-3 bg-amber-50 p-3 rounded-md text-sm border border-amber-200">
-                              <div className="flex items-center gap-2 font-medium text-amber-700 mb-1">
-                                <AlertCircle className="h-4 w-4" />
-                                <span>
-                                  Appeal {assignment.submissions[0].appeal.status === "pending" 
-                                    ? "Pending" 
-                                    : "Reviewed"}
-                                </span>
-                              </div>
-                              {assignment.submissions[0].appeal.status === "reviewed" && (
-                                <p className="text-amber-700">
-                                  Your appeal has been reviewed and your grade has been updated.
-                                </p>
+                              )}
+                              {isAppealable(assignment) && assignment.submissions && assignment.submissions.length > 0 && (
+                                <Dialog open={showAppealDialog} onOpenChange={setShowAppealDialog}>
+                                  <DialogTrigger asChild>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      onClick={() => handleAppeal(assignment.submissions![0])}
+                                    >
+                                      <Flag className="h-4 w-4 mr-2 text-red-500" />
+                                      Appeal Grade
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>Appeal Grade</DialogTitle>
+                                      <DialogDescription>
+                                        Explain why you believe your grade should be reconsidered.
+                                        Appeals can be submitted within 5 days of grading.
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="grid gap-4 py-4">
+                                      <div>
+                                        <Label htmlFor="appeal-reason">Reason for Appeal</Label>
+                                        <Textarea
+                                          id="appeal-reason"
+                                          placeholder="Explain which parts of your work were incorrectly graded and why"
+                                          value={appealReason}
+                                          onChange={(e) => setAppealReason(e.target.value)}
+                                          className="mt-2"
+                                          rows={5}
+                                        />
+                                      </div>
+                                    </div>
+                                    <DialogFooter>
+                                      <Button variant="outline" onClick={() => setShowAppealDialog(false)}>
+                                        Cancel
+                                      </Button>
+                                      <Button onClick={handleSubmitAppeal} disabled={!appealReason.trim()}>
+                                        Submit Appeal
+                                      </Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
+                              )}
+                              {assignment.submissions && assignment.submissions.length > 0 && 
+                                assignment.submissions[0].appeal && (
+                                <div className="mt-3 bg-amber-50 p-3 rounded-md text-sm border border-amber-200">
+                                  <div className="flex items-center gap-2 font-medium text-amber-700 mb-1">
+                                    <AlertCircle className="h-4 w-4" />
+                                    <span>
+                                      Appeal {assignment.submissions[0].appeal.status === "pending" 
+                                        ? "Pending" 
+                                        : "Reviewed"}
+                                    </span>
+                                  </div>
+                                  {assignment.submissions[0].appeal.status === "reviewed" && (
+                                    <p className="text-amber-700">
+                                      Your appeal has been reviewed and your grade has been updated.
+                                    </p>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}
-                        </div>
-                      )}
-                      {assignment.status === "upcoming" && (
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">
-                              Max Grade: {assignment.maxGrade}
-                            </span>
-                          </div>
-                          <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-                            <DialogTrigger asChild>
-                              <Button
-                                onClick={() => setCurrentAssignmentId(assignment.id)}
-                                size="sm"
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                Submit
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Submit {assignment.type}</DialogTitle>
-                                <DialogDescription>
-                                  Upload your completed {assignment.type} as a PDF or image file.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <div className="grid gap-4 py-4">
-                                <Label htmlFor="file-upload">Files</Label>
-                                <Input
-                                  id="file-upload"
-                                  type="file"
-                                  multiple
-                                  onChange={handleFileChange}
-                                />
-                                {uploadingFiles.length > 0 && (
-                                  <div className="bg-muted p-2 rounded-md">
-                                    <p className="font-medium text-sm mb-1">Selected files:</p>
-                                    {uploadingFiles.map((file, index) => (
-                                      <div key={index} className="flex items-center gap-2 text-sm">
-                                        <File className="h-4 w-4" />
-                                        <span>{file.name}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
+                          {assignment.status === "upcoming" && (
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground">
+                                  Max Grade: {assignment.maxGrade}
+                                </span>
                               </div>
-                              <DialogFooter>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => setShowUploadDialog(false)}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button onClick={handleSubmitAssignment}>
-                                  Submit {assignment.type}
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-                
-                {examQuizzes.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground">No exams or quizzes available.</p>
+                              <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+                                <DialogTrigger asChild>
+                                  <Button
+                                    onClick={() => setCurrentAssignmentId(assignment.id)}
+                                    size="sm"
+                                  >
+                                    <Upload className="h-4 w-4 mr-2" />
+                                    Submit
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Submit {assignment.type}</DialogTitle>
+                                    <DialogDescription>
+                                      Upload your completed {assignment.type} as a PDF or image file.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <div className="grid gap-4 py-4">
+                                    <Label htmlFor="file-upload">Files</Label>
+                                    <Input
+                                      id="file-upload"
+                                      type="file"
+                                      multiple
+                                      onChange={handleFileChange}
+                                    />
+                                    {uploadingFiles.length > 0 && (
+                                      <div className="bg-muted p-2 rounded-md">
+                                        <p className="font-medium text-sm mb-1">Selected files:</p>
+                                        {uploadingFiles.map((file, index) => (
+                                          <div key={index} className="flex items-center gap-2 text-sm">
+                                            <File className="h-4 w-4" />
+                                            <span>{file.name}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <DialogFooter>
+                                    <Button
+                                      variant="outline"
+                                      onClick={() => setShowUploadDialog(false)}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button onClick={handleSubmitAssignment}>
+                                      Submit {assignment.type}
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="materials">
+              <MaterialsList 
+                materials={materials}
+                title="Class Materials"
+                emptyMessage="No materials available for this subject yet."
+              />
             </TabsContent>
           </Tabs>
         ) : (
@@ -671,46 +647,25 @@ const Subject = () => {
                 </Dialog>
               </div>
               
-              <div className="grid gap-4">
-                {materials.map((material) => (
-                  <Card key={material.id}>
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle>{material.title}</CardTitle>
-                          <CardDescription>
-                            Added: {format(new Date(material.dateAdded), "PPP")}
-                          </CardDescription>
-                        </div>
-                        <Badge variant="outline">
-                          {material.type.charAt(0).toUpperCase() + material.type.slice(1)}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm mb-4">{material.description}</p>
-                      <Button variant="outline" size="sm">
-                        <FileText className="h-4 w-4 mr-2" />
-                        View Material
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-                
-                {materials.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground">No materials uploaded yet.</p>
-                    <Button 
-                      variant="outline" 
-                      className="mt-4"
-                      onClick={() => setShowAddMaterialDialog(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Your First Material
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <MaterialsList 
+                materials={materials}
+                title="Class Materials"
+                emptyMessage="No materials uploaded yet."
+              />
+              
+              {materials.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No materials uploaded yet.</p>
+                  <Button 
+                    variant="outline" 
+                    className="mt-4"
+                    onClick={() => setShowAddMaterialDialog(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Your First Material
+                  </Button>
+                </div>
+              )}
             </TabsContent>
             
             <TabsContent value="assignments">
@@ -883,47 +838,15 @@ const Subject = () => {
                 </TabsContent>
                 
                 <TabsContent value="submitted">
-                  <div className="grid gap-4">
-                    {submittedAssignments.map((assignment) => (
-                      <Card key={assignment.id}>
-                        <CardHeader className="pb-2">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <CardTitle>{assignment.title}</CardTitle>
-                              <CardDescription>
-                                Due: {format(new Date(assignment.dueDate), "PPP")}
-                              </CardDescription>
-                            </div>
-                            <Badge variant="outline" className="bg-blue-100">
-                              Submitted
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm mb-4">{assignment.description}</p>
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-muted-foreground">
-                                {getSubmissionsForAssignment(assignment.id).length} submission(s)
-                              </span>
-                            </div>
-                            <Button 
-                              size="sm"
-                              onClick={() => handleViewSubmissions(assignment.id)}
-                            >
-                              View Submissions
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                    
-                    {submittedAssignments.length === 0 && (
-                      <div className="text-center py-12">
-                        <p className="text-muted-foreground">No submitted assignments.</p>
-                      </div>
-                    )}
-                  </div>
+                  <SubmissionsList 
+                    submissions={assignments
+                      .filter(a => a.status === "submitted")
+                      .flatMap(a => a.submissions || [])}
+                    assignments={assignments}
+                    title="Submitted Assignments"
+                    emptyMessage="No submitted assignments yet."
+                    viewSubmissionDetails={handleViewSubmissionDetails}
+                  />
                 </TabsContent>
                 
                 <TabsContent value="graded">
