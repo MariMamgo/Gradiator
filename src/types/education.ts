@@ -7,14 +7,17 @@ export interface Subject {
   imageUrl?: string;
 }
 
+export type AssignmentStatus = "upcoming" | "submitted" | "graded";
+export type AssignmentType = "homework" | "exam" | "quiz";
+
 export interface Assignment {
   id: string;
   title: string;
   subjectId: string;
   description: string;
   dueDate: string;
-  type: "homework" | "exam" | "quiz";
-  status: "upcoming" | "submitted" | "graded";
+  type: AssignmentType;
+  status: AssignmentStatus;
   grade?: number;
   feedback?: string;
   maxGrade: number;
@@ -25,6 +28,8 @@ export interface Assignment {
   hasAppeal?: boolean;
 }
 
+export type SubmissionStatus = "submitted" | "graded";
+
 export interface Submission {
   id: string;
   assignmentId: string;
@@ -32,17 +37,19 @@ export interface Submission {
   studentName: string;
   files: string[];
   submittedAt: string;
-  status: "submitted" | "graded";
+  status: SubmissionStatus;
   grade?: number;
   feedback?: string;
   appeal?: Appeal;
 }
 
+export type AppealStatus = "pending" | "reviewed";
+
 export interface Appeal {
   id: string;
   submissionId: string;
   reason: string;
-  status: "pending" | "reviewed";
+  status: AppealStatus;
   createdAt: string;
   reviewedAt?: string;
   originalGrade: number;

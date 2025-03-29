@@ -1,6 +1,14 @@
-
 import React, { createContext, useContext, useState } from "react";
-import { Subject, Assignment, Material, Submission, Appeal } from "@/types/education";
+import { 
+  Subject, 
+  Assignment, 
+  Material, 
+  Submission, 
+  Appeal, 
+  AssignmentStatus, 
+  SubmissionStatus, 
+  AppealStatus 
+} from "@/types/education";
 import { useToast } from "@/components/ui/use-toast";
 import { toast } from "@/components/ui/use-toast";
 import { User } from "@/types/auth";
@@ -206,12 +214,14 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           studentName: userName,
           files,
           submittedAt: new Date().toISOString(),
-          status: "submitted"
+          status: "submitted" as AssignmentStatus,
+          grade: 0,
+          feedback: ""
         };
         
         return {
           ...assignment,
-          status: "submitted",
+          status: "submitted" as AssignmentStatus,
           submissions: [...(assignment.submissions || []), newSubmission]
         };
       }
@@ -285,7 +295,7 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         feedback,
         appeal: {
           ...submission.appeal,
-          status: "reviewed",
+          status: "reviewed" as AppealStatus,
           reviewedAt: new Date().toISOString()
         }
       };
@@ -357,14 +367,14 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       updatedSubmissions[submissionIndex] = {
         ...updatedSubmissions[submissionIndex],
-        status: "graded",
+        status: "graded" as SubmissionStatus,
         grade,
         feedback
       };
       
       return {
         ...assignment,
-        status: "graded",
+        status: "graded" as AssignmentStatus,
         submissions: updatedSubmissions
       };
     });
