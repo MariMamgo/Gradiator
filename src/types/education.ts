@@ -20,6 +20,32 @@ export interface Assignment {
   maxGrade: number;
   criteria?: string;
   files?: string[];
+  submissions?: Submission[];
+  appealDeadline?: string;
+  hasAppeal?: boolean;
+}
+
+export interface Submission {
+  id: string;
+  assignmentId: string;
+  studentId: string;
+  studentName: string;
+  files: string[];
+  submittedAt: string;
+  status: "submitted" | "graded";
+  grade?: number;
+  feedback?: string;
+  appeal?: Appeal;
+}
+
+export interface Appeal {
+  id: string;
+  submissionId: string;
+  reason: string;
+  status: "pending" | "reviewed";
+  createdAt: string;
+  reviewedAt?: string;
+  originalGrade: number;
 }
 
 export interface Material {

@@ -1,7 +1,9 @@
 
 import React, { createContext, useContext, useState } from "react";
-import { Subject, Assignment, Material } from "@/types/education";
+import { Subject, Assignment, Material, Submission, Appeal } from "@/types/education";
 import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
+import { User } from "@/types/auth";
 
 // Mock data
 const MOCK_SUBJECTS: Subject[] = [
@@ -45,7 +47,8 @@ const MOCK_ASSIGNMENTS: Assignment[] = [
     type: "homework",
     status: "upcoming",
     maxGrade: 100,
-    criteria: "Correct analysis: 70%, Clarity: 30%"
+    criteria: "Correct analysis: 70%, Clarity: 30%",
+    submissions: []
   },
   {
     id: "2",
@@ -58,7 +61,21 @@ const MOCK_ASSIGNMENTS: Assignment[] = [
     grade: 92,
     feedback: "Excellent work on the responsive design. Consider adding more accessibility features.",
     maxGrade: 100,
-    criteria: "Functionality: 40%, Design: 30%, Code quality: 30%"
+    criteria: "Functionality: 40%, Design: 30%, Code quality: 30%",
+    submissions: [
+      {
+        id: "s1",
+        assignmentId: "2",
+        studentId: "student1",
+        studentName: "John Doe",
+        files: ["/placeholder.svg"],
+        submittedAt: "2023-12-08",
+        status: "graded",
+        grade: 92,
+        feedback: "Excellent work on the responsive design. Consider adding more accessibility features."
+      }
+    ],
+    appealDeadline: "2023-12-15"
   },
   {
     id: "3",
@@ -70,7 +87,21 @@ const MOCK_ASSIGNMENTS: Assignment[] = [
     status: "graded",
     grade: 85,
     feedback: "Good understanding of core concepts. Review section 3.",
-    maxGrade: 100
+    maxGrade: 100,
+    submissions: [
+      {
+        id: "s2",
+        assignmentId: "3",
+        studentId: "student1",
+        studentName: "John Doe",
+        files: ["/placeholder.svg"],
+        submittedAt: "2023-11-05",
+        status: "graded",
+        grade: 85,
+        feedback: "Good understanding of core concepts. Review section 3."
+      }
+    ],
+    appealDeadline: "2023-11-10"
   },
 ];
 
@@ -101,11 +132,16 @@ interface EducationContextType {
   materials: Material[];
   addAssignment: (assignment: Omit<Assignment, "id">) => void;
   updateAssignment: (assignment: Assignment) => void;
-  submitAssignment: (assignmentId: string, files: string[]) => void;
+  submitAssignment: (assignmentId: string, files: string[], userId: string, userName: string) => void;
+  submitAppeal: (submissionId: string, reason: string) => void;
+  reviewAppeal: (submissionId: string, newGrade: number, feedback: string) => void;
   addMaterial: (material: Omit<Material, "id">) => void;
   getSubjectById: (id: string) => Subject | undefined;
   getAssignmentsForSubject: (subjectId: string) => Assignment[];
   getMaterialsForSubject: (subjectId: string) => Material[];
+  getSubmissionById: (submissionId: string) => Submission | undefined;
+  getSubmissionsForAssignment: (assignmentId: string) => Submission[];
+  gradeSubmission: (submissionId: string, grade: number, feedback: string) => void;
 }
 
 const EducationContext = createContext<EducationContextType>({
@@ -115,10 +151,15 @@ const EducationContext = createContext<EducationContextType>({
   addAssignment: () => {},
   updateAssignment: () => {},
   submitAssignment: () => {},
+  submitAppeal: () => {},
+  reviewAppeal: () => {},
   addMaterial: () => {},
   getSubjectById: () => undefined,
   getAssignmentsForSubject: () => [],
   getMaterialsForSubject: () => [],
+  getSubmissionById: () => undefined,
+  getSubmissionsForAssignment: () => [],
+  gradeSubmission: () => {},
 });
 
 export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -131,6 +172,8 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const newAssignment: Assignment = {
       ...assignmentData,
       id: (assignments.length + 1).toString(),
+      submissions: [],
+      appealDeadline: new Date(new Date(assignmentData.dueDate).getTime() + 5 * 24 * 60 * 60 * 1000).toISOString(),
     };
     
     setAssignments([...assignments, newAssignment]);
@@ -153,18 +196,114 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   };
 
-  const submitAssignment = (assignmentId: string, files: string[]) => {
-    setAssignments(
-      assignments.map((a) =>
-        a.id === assignmentId
-          ? { ...a, status: "submitted", files }
-          : a
-      )
-    );
+  const submitAssignment = (assignmentId: string, files: string[], userId: string, userName: string) => {
+    const updatedAssignments = assignments.map(assignment => {
+      if (assignment.id === assignmentId) {
+        const newSubmission: Submission = {
+          id: `s${Date.now()}`,
+          assignmentId,
+          studentId: userId,
+          studentName: userName,
+          files,
+          submittedAt: new Date().toISOString(),
+          status: "submitted"
+        };
+        
+        return {
+          ...assignment,
+          status: "submitted",
+          submissions: [...(assignment.submissions || []), newSubmission]
+        };
+      }
+      return assignment;
+    });
+    
+    setAssignments(updatedAssignments);
     
     toast({
       title: "Assignment Submitted",
       description: "Your assignment has been successfully submitted.",
+    });
+  };
+  
+  const submitAppeal = (submissionId: string, reason: string) => {
+    const updatedAssignments = assignments.map(assignment => {
+      if (!assignment.submissions) return assignment;
+      
+      const submissionIndex = assignment.submissions.findIndex(s => s.id === submissionId);
+      if (submissionIndex === -1) return assignment;
+      
+      const updatedSubmissions = [...assignment.submissions];
+      const submission = updatedSubmissions[submissionIndex];
+      
+      if (!submission.grade) return assignment;
+      
+      const appeal: Appeal = {
+        id: `a${Date.now()}`,
+        submissionId,
+        reason,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        originalGrade: submission.grade
+      };
+      
+      updatedSubmissions[submissionIndex] = {
+        ...submission,
+        appeal
+      };
+      
+      return {
+        ...assignment,
+        submissions: updatedSubmissions,
+        hasAppeal: true
+      };
+    });
+    
+    setAssignments(updatedAssignments);
+    
+    toast({
+      title: "Appeal Submitted",
+      description: "Your appeal has been successfully submitted.",
+    });
+  };
+  
+  const reviewAppeal = (submissionId: string, newGrade: number, feedback: string) => {
+    const updatedAssignments = assignments.map(assignment => {
+      if (!assignment.submissions) return assignment;
+      
+      const submissionIndex = assignment.submissions.findIndex(s => s.id === submissionId);
+      if (submissionIndex === -1) return assignment;
+      
+      const updatedSubmissions = [...assignment.submissions];
+      const submission = updatedSubmissions[submissionIndex];
+      
+      if (!submission.appeal) return assignment;
+      
+      updatedSubmissions[submissionIndex] = {
+        ...submission,
+        grade: newGrade,
+        feedback,
+        appeal: {
+          ...submission.appeal,
+          status: "reviewed",
+          reviewedAt: new Date().toISOString()
+        }
+      };
+      
+      const allAppealsReviewed = updatedSubmissions.every(s => !s.appeal || s.appeal.status === "reviewed");
+      
+      return {
+        ...assignment,
+        submissions: updatedSubmissions,
+        hasAppeal: !allAppealsReviewed
+      };
+    });
+    
+    setAssignments(updatedAssignments);
+    
+    toast({
+      title: "Appeal Reviewed",
+      description: "The appeal has been successfully reviewed.",
     });
   };
 
@@ -192,6 +331,51 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const getMaterialsForSubject = (subjectId: string) => {
     return materials.filter((m) => m.subjectId === subjectId);
   };
+  
+  const getSubmissionById = (submissionId: string) => {
+    for (const assignment of assignments) {
+      if (!assignment.submissions) continue;
+      const submission = assignment.submissions.find(s => s.id === submissionId);
+      if (submission) return submission;
+    }
+    return undefined;
+  };
+  
+  const getSubmissionsForAssignment = (assignmentId: string) => {
+    const assignment = assignments.find(a => a.id === assignmentId);
+    return assignment?.submissions || [];
+  };
+  
+  const gradeSubmission = (submissionId: string, grade: number, feedback: string) => {
+    const updatedAssignments = assignments.map(assignment => {
+      if (!assignment.submissions) return assignment;
+      
+      const submissionIndex = assignment.submissions.findIndex(s => s.id === submissionId);
+      if (submissionIndex === -1) return assignment;
+      
+      const updatedSubmissions = [...assignment.submissions];
+      
+      updatedSubmissions[submissionIndex] = {
+        ...updatedSubmissions[submissionIndex],
+        status: "graded",
+        grade,
+        feedback
+      };
+      
+      return {
+        ...assignment,
+        status: "graded",
+        submissions: updatedSubmissions
+      };
+    });
+    
+    setAssignments(updatedAssignments);
+    
+    toast({
+      title: "Submission Graded",
+      description: "The submission has been successfully graded.",
+    });
+  };
 
   return (
     <EducationContext.Provider
@@ -202,10 +386,15 @@ export const EducationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addAssignment,
         updateAssignment,
         submitAssignment,
+        submitAppeal,
+        reviewAppeal,
         addMaterial,
         getSubjectById,
         getAssignmentsForSubject,
         getMaterialsForSubject,
+        getSubmissionById,
+        getSubmissionsForAssignment,
+        gradeSubmission,
       }}
     >
       {children}

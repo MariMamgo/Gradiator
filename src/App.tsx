@@ -11,6 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import Subject from "./pages/Subject";
 import NotFound from "./pages/NotFound";
 
+// Create a client
 const queryClient = new QueryClient();
 
 const App = () => (
