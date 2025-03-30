@@ -1,3 +1,4 @@
+
 import { Subject, Assignment, Material, Submission, Appeal } from "@/types/education";
 import { User } from "@/types/auth";
 import { apiService } from "./ApiService";
@@ -32,8 +33,9 @@ class DatabaseService {
         this.useLocalStorage = true;
         toast({
           title: "Backend Unavailable",
-          description: "Using local storage for data persistence. Start the backend server for full functionality.",
-          variant: "destructive"
+          description: "Using local storage for data persistence. Start the backend server for full functionality. See the README.md in the Gradiator-Grader-API folder for instructions.",
+          variant: "destructive",
+          duration: 6000
         });
       }
     } catch (error) {
@@ -41,8 +43,9 @@ class DatabaseService {
       this.useLocalStorage = true;
       toast({
         title: "Backend Unavailable",
-        description: "Using local storage for data persistence. Start the backend server for full functionality.",
-        variant: "destructive"
+        description: "Using local storage for data persistence. Start the backend server for full functionality. See the README.md in the Gradiator-Grader-API folder for instructions.",
+        variant: "destructive",
+        duration: 6000
       });
     }
   }

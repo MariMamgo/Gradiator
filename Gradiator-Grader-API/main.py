@@ -16,6 +16,10 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import uvicorn
 import database as db
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,12 +27,13 @@ logger = logging.getLogger(__name__)
 
 # --- Gemini Configuration ---
 try:
-    api_key = "AIzaSyBcLcDg9pVhhIR9GSQI32tsPrGBCH5UXEc"
+    # Try to get API key from environment variable, fall back to hardcoded key
+    api_key = os.getenv("GOOGLE_API_KEY", "AIzaSyBcLcDg9pVhhIR9GSQI32tsPrGBCH5UXEc")
     if not api_key:
         raise ValueError("API key not found. Please set the GOOGLE_API_KEY environment variable.")
 
     genai.configure(api_key=api_key)
-    logger.info("Gemini API configured.")
+    logger.info("Gemini API configured with key: " + api_key[:4] + "..." + api_key[-4:])
 except ValueError as e:
     logger.error(f"Gemini Configuration Error: {e}")
     sys.exit(1)
