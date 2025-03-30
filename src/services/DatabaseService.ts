@@ -1,4 +1,3 @@
-
 import { Subject, Assignment, Material, Submission, Appeal } from "@/types/education";
 import { User } from "@/types/auth";
 import { apiService } from "./ApiService";
@@ -301,7 +300,7 @@ class DatabaseService {
         }
         
         if (material.id) {
-          return await apiService.saveSubject(material);
+          return await apiService.updateMaterial(material);
         } else {
           return await apiService.saveMaterial(material, file!);
         }
