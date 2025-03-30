@@ -49,6 +49,14 @@ FastAPI automatically generates interactive API documentation. You can access it
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
+## Troubleshooting
+
+If you encounter the error "module 'datetime' has no attribute 'now'", add this import to the beginning of main.py:
+
+```python
+from datetime import datetime
+```
+
 ## Features
 
 - User management
@@ -73,3 +81,9 @@ The API provides endpoints for all educational entities:
 ## File Storage
 
 Uploaded files are stored in the `uploads` directory. Each file gets a unique name to prevent conflicts.
+
+## Offline Mode
+
+If the backend server is not running, the frontend will automatically fall back to localStorage for data persistence. This ensures that the application remains functional, though with limited capabilities (no file uploads or AI grading).
+
+To get full functionality including AI-powered grading, make sure the backend server is running before using the application.

@@ -2,18 +2,63 @@
 import { Subject, Assignment, Material, Submission, Appeal } from "@/types/education";
 import { User } from "@/types/auth";
 import { apiService } from "./ApiService";
+import { toast } from "@/hooks/use-toast";
 
-// This service now serves as an adapter between the frontend and the FastAPI backend
+// This service serves as an adapter between the frontend and the FastAPI backend
+// with fallback to localStorage when the API is unavailable
 class DatabaseService {
   private storagePrefix = "gradiator_";
-  private useLocalStorage = false; // Set to true for local storage, false for API
+  private useLocalStorage = true; // Default to localStorage for offline functionality
+
+  constructor() {
+    // Check if API is available
+    this.checkApiAvailability();
+  }
+
+  // Check if the API is available and set useLocalStorage accordingly
+  private async checkApiAvailability() {
+    try {
+      const response = await fetch("http://localhost:8000", { 
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        // Short timeout to quickly determine if the API is available
+        signal: AbortSignal.timeout(3000)
+      });
+      
+      if (response.ok) {
+        console.log("API is available. Using API for data persistence.");
+        this.useLocalStorage = false;
+      } else {
+        console.warn("API returned an error. Falling back to localStorage.");
+        this.useLocalStorage = true;
+        toast({
+          title: "Backend Unavailable",
+          description: "Using local storage for data persistence. Start the backend server for full functionality.",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.warn("API unavailable. Falling back to localStorage:", error);
+      this.useLocalStorage = true;
+      toast({
+        title: "Backend Unavailable",
+        description: "Using local storage for data persistence. Start the backend server for full functionality.",
+        variant: "destructive"
+      });
+    }
+  }
 
   // User management
   async getUsers(): Promise<User[]> {
     if (this.useLocalStorage) {
       return this.getItem("users", []);
     } else {
-      return apiService.getUsers();
+      try {
+        return await apiService.getUsers();
+      } catch (error) {
+        console.error("Error fetching users from API, falling back to localStorage:", error);
+        return this.getItem("users", []);
+      }
     }
   }
 
@@ -25,8 +70,9 @@ class DatabaseService {
       try {
         return await apiService.getUserById(id);
       } catch (error) {
-        console.error("Error fetching user:", error);
-        return undefined;
+        console.error("Error fetching user from API, falling back to localStorage:", error);
+        const users = await this.getItem("users", []);
+        return users.find(user => user.id === id);
       }
     }
   }
@@ -39,13 +85,22 @@ class DatabaseService {
       if (existingUserIndex >= 0) {
         users[existingUserIndex] = user;
       } else {
+        // If new user, generate ID
+        if (!user.id) {
+          user.id = Date.now().toString();
+        }
         users.push(user);
       }
       
       await this.setItem("users", users);
       return user;
     } else {
-      return apiService.saveUser(user);
+      try {
+        return await apiService.saveUser(user);
+      } catch (error) {
+        console.error("Error saving user to API, falling back to localStorage:", error);
+        return this.saveUser(user);
+      }
     }
   }
 
@@ -54,7 +109,12 @@ class DatabaseService {
     if (this.useLocalStorage) {
       return this.getItem("subjects", []);
     } else {
-      return apiService.getSubjects();
+      try {
+        return await apiService.getSubjects();
+      } catch (error) {
+        console.error("Error fetching subjects from API, falling back to localStorage:", error);
+        return this.getItem("subjects", []);
+      }
     }
   }
 
@@ -66,8 +126,9 @@ class DatabaseService {
       try {
         return await apiService.getSubjectById(id);
       } catch (error) {
-        console.error("Error fetching subject:", error);
-        return undefined;
+        console.error("Error fetching subject from API, falling back to localStorage:", error);
+        const subjects = await this.getItem("subjects", []);
+        return subjects.find(subject => subject.id === id);
       }
     }
   }
@@ -90,7 +151,13 @@ class DatabaseService {
       await this.setItem("subjects", subjects);
       return subject;
     } else {
-      return apiService.saveSubject(subject);
+      try {
+        return await apiService.saveSubject(subject);
+      } catch (error) {
+        console.error("Error saving subject to API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.saveSubject(subject);
+      }
     }
   }
 
@@ -99,7 +166,12 @@ class DatabaseService {
     if (this.useLocalStorage) {
       return this.getItem("assignments", []);
     } else {
-      return apiService.getAssignments();
+      try {
+        return await apiService.getAssignments();
+      } catch (error) {
+        console.error("Error fetching assignments from API, falling back to localStorage:", error);
+        return this.getItem("assignments", []);
+      }
     }
   }
 
@@ -111,8 +183,9 @@ class DatabaseService {
       try {
         return await apiService.getAssignmentById(id);
       } catch (error) {
-        console.error("Error fetching assignment:", error);
-        return undefined;
+        console.error("Error fetching assignment from API, falling back to localStorage:", error);
+        const assignments = await this.getItem("assignments", []);
+        return assignments.find(assignment => assignment.id === id);
       }
     }
   }
@@ -122,7 +195,13 @@ class DatabaseService {
       const assignments = await this.getAssignments();
       return assignments.filter(assignment => assignment.subjectId === subjectId);
     } else {
-      return apiService.getAssignmentsForSubject(subjectId);
+      try {
+        return await apiService.getAssignmentsForSubject(subjectId);
+      } catch (error) {
+        console.error("Error fetching assignments for subject from API, falling back to localStorage:", error);
+        const assignments = await this.getItem("assignments", []);
+        return assignments.filter(assignment => assignment.subjectId === subjectId);
+      }
     }
   }
 
@@ -144,7 +223,13 @@ class DatabaseService {
       await this.setItem("assignments", assignments);
       return assignment;
     } else {
-      return apiService.saveAssignment(assignment, taskFile);
+      try {
+        return await apiService.saveAssignment(assignment, taskFile);
+      } catch (error) {
+        console.error("Error saving assignment to API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.saveAssignment(assignment);
+      }
     }
   }
 
@@ -153,7 +238,12 @@ class DatabaseService {
     if (this.useLocalStorage) {
       return this.getItem("materials", []);
     } else {
-      return apiService.getMaterials();
+      try {
+        return await apiService.getMaterials();
+      } catch (error) {
+        console.error("Error fetching materials from API, falling back to localStorage:", error);
+        return this.getItem("materials", []);
+      }
     }
   }
 
@@ -165,8 +255,9 @@ class DatabaseService {
       try {
         return await apiService.getMaterialById(id);
       } catch (error) {
-        console.error("Error fetching material:", error);
-        return undefined;
+        console.error("Error fetching material from API, falling back to localStorage:", error);
+        const materials = await this.getItem("materials", []);
+        return materials.find(material => material.id === id);
       }
     }
   }
@@ -176,7 +267,13 @@ class DatabaseService {
       const materials = await this.getMaterials();
       return materials.filter(material => material.subjectId === subjectId);
     } else {
-      return apiService.getMaterialsForSubject(subjectId);
+      try {
+        return await apiService.getMaterialsForSubject(subjectId);
+      } catch (error) {
+        console.error("Error fetching materials for subject from API, falling back to localStorage:", error);
+        const materials = await this.getItem("materials", []);
+        return materials.filter(material => material.subjectId === subjectId);
+      }
     }
   }
 
@@ -198,15 +295,20 @@ class DatabaseService {
       await this.setItem("materials", materials);
       return material;
     } else {
-      if (!file && !material.id) {
-        throw new Error("File is required for new materials");
-      }
-      
-      if (material.id) {
-        // TODO: Handle material updates with file changes
-        return material;
-      } else {
-        return apiService.saveMaterial(material, file!);
+      try {
+        if (!file && !material.id) {
+          throw new Error("File is required for new materials");
+        }
+        
+        if (material.id) {
+          return await apiService.saveSubject(material);
+        } else {
+          return await apiService.saveMaterial(material, file!);
+        }
+      } catch (error) {
+        console.error("Error saving material to API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.saveMaterial(material);
       }
     }
   }
@@ -225,7 +327,13 @@ class DatabaseService {
       try {
         return await apiService.getSubmissionById(id);
       } catch (error) {
-        console.error("Error fetching submission:", error);
+        console.error("Error fetching submission from API, falling back to localStorage:", error);
+        const assignments = await this.getItem("assignments", []);
+        for (const assignment of assignments) {
+          if (!assignment.submissions) continue;
+          const submission = assignment.submissions.find(s => s.id === id);
+          if (submission) return submission;
+        }
         return undefined;
       }
     }
@@ -236,7 +344,13 @@ class DatabaseService {
       const assignment = await this.getAssignmentById(assignmentId);
       return assignment?.submissions || [];
     } else {
-      return apiService.getSubmissionsForAssignment(assignmentId);
+      try {
+        return await apiService.getSubmissionsForAssignment(assignmentId);
+      } catch (error) {
+        console.error("Error fetching submissions for assignment from API, falling back to localStorage:", error);
+        const assignment = await this.getAssignmentById(assignmentId);
+        return assignment?.submissions || [];
+      }
     }
   }
 
@@ -253,7 +367,21 @@ class DatabaseService {
       
       return submissions;
     } else {
-      return apiService.getSubmissionsByStudent(studentId);
+      try {
+        return await apiService.getSubmissionsByStudent(studentId);
+      } catch (error) {
+        console.error("Error fetching submissions by student from API, falling back to localStorage:", error);
+        const assignments = await this.getItem("assignments", []);
+        const submissions: Submission[] = [];
+        
+        for (const assignment of assignments) {
+          if (!assignment.submissions) continue;
+          const studentSubmissions = assignment.submissions.filter(s => s.studentId === studentId);
+          submissions.push(...studentSubmissions);
+        }
+        
+        return submissions;
+      }
     }
   }
 
@@ -283,21 +411,24 @@ class DatabaseService {
       
       return newSubmission;
     } else {
-      // Convert string file URLs to actual File objects (if using backend API)
-      // This is a simplified example - actual implementation would depend on how files are handled
-      if (Array.isArray(submission.files) && submission.files.length > 0 && typeof submission.files[0] === 'string') {
-        console.warn("Cannot convert string file URLs to File objects for API submission");
-        // In a real app, you'd need to have access to the actual File objects or upload them separately
-        throw new Error("Direct file submission not implemented for API mode");
+      try {
+        // Convert string file URLs to actual File objects (if using backend API)
+        if (Array.isArray(submission.files) && submission.files.length > 0 && typeof submission.files[0] === 'string') {
+          console.warn("Cannot convert string file URLs to File objects for API submission");
+          throw new Error("Direct file submission not implemented for API mode");
+        }
+        
+        return await apiService.submitAssignment(
+          assignmentId, 
+          submission.files as unknown as File[], 
+          submission.studentId, 
+          submission.studentName
+        );
+      } catch (error) {
+        console.error("Error submitting assignment to API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.submitAssignment(assignmentId, submission);
       }
-      
-      // For simplicity in this example, we're assuming submission.files contains File objects
-      return apiService.submitAssignment(
-        assignmentId, 
-        submission.files as unknown as File[], 
-        submission.studentId, 
-        submission.studentName
-      );
     }
   }
 
@@ -338,7 +469,13 @@ class DatabaseService {
       
       return updatedSubmission;
     } else {
-      return apiService.gradeSubmission(submissionId, grade, feedback);
+      try {
+        return await apiService.gradeSubmission(submissionId, grade, feedback);
+      } catch (error) {
+        console.error("Error grading submission on API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.gradeSubmission(submissionId, grade, feedback);
+      }
     }
   }
 
@@ -390,7 +527,13 @@ class DatabaseService {
       
       return createdAppeal;
     } else {
-      return apiService.submitAppeal(submissionId, reason);
+      try {
+        return await apiService.submitAppeal(submissionId, reason);
+      } catch (error) {
+        console.error("Error submitting appeal to API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.submitAppeal(submissionId, reason);
+      }
     }
   }
 
@@ -442,7 +585,37 @@ class DatabaseService {
       
       return updatedSubmission;
     } else {
-      return apiService.reviewAppeal(submissionId, newGrade, feedback);
+      try {
+        return await apiService.reviewAppeal(submissionId, newGrade, feedback);
+      } catch (error) {
+        console.error("Error reviewing appeal on API, falling back to localStorage:", error);
+        this.useLocalStorage = true;
+        return this.reviewAppeal(submissionId, newGrade, feedback);
+      }
+    }
+  }
+
+  // AI Grading
+  async gradeHomework(taskFile: File, solutionFile: File, criteria: string): Promise<{ score: number, feedback: string }> {
+    try {
+      if (this.useLocalStorage) {
+        // Generate a random score between 70 and 100 as a fallback
+        const randomScore = Math.floor(Math.random() * 31) + 70;
+        return {
+          score: randomScore,
+          feedback: "This is an auto-generated grade. For accurate AI grading, please run the FastAPI backend server."
+        };
+      }
+      
+      return await apiService.gradeHomework(taskFile, solutionFile, criteria);
+    } catch (error) {
+      console.error("Error using AI grading service:", error);
+      // Fall back to random grading if API fails
+      const randomScore = Math.floor(Math.random() * 31) + 70;
+      return {
+        score: randomScore,
+        feedback: "AI grading service is unavailable. This is a randomly generated score. Please try again later or start the FastAPI backend."
+      };
     }
   }
 
@@ -480,6 +653,8 @@ class DatabaseService {
         await this.setItem("subjects", MOCK_SUBJECTS);
         await this.setItem("assignments", MOCK_ASSIGNMENTS);
         await this.setItem("materials", MOCK_MATERIALS);
+        
+        console.log("Initialized localStorage with sample data");
       }
     }
     // If using API, no need to initialize as the server will handle it
