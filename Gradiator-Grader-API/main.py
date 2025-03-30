@@ -1,14 +1,21 @@
+
 import os
 import google.generativeai as genai
 from PIL import Image
 import sys
 import json
 import mimetypes
-import shutil # For saving/copying uploaded files
-import logging # For better server-side logging
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+import shutil
+import logging
+import uuid
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Body, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
 import uvicorn
+import database as db
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -18,55 +25,329 @@ logger = logging.getLogger(__name__)
 try:
     api_key = "AIzaSyBcLcDg9pVhhIR9GSQI32tsPrGBCH5UXEc"
     if not api_key:
-        # If running locally and forgot to set env var, fallback for convenience ONLY.
-        # REMOVE THIS FALLBACK IN PRODUCTION or if sharing code.
-        # api_key = "AIzaSyBcLcDg9pVhhIR9GSQI32tsPrGBCH5UXEc" # <--- DANGEROUS - REMOVE THIS LINE
-        # logger.warning("API Key loaded from hardcoded fallback - THIS IS INSECURE, use environment variables.")
-        # if not api_key: # Check again after fallback attempt
-             raise ValueError("API key not found. Please set the GOOGLE_API_KEY environment variable.")
+        raise ValueError("API key not found. Please set the GOOGLE_API_KEY environment variable.")
 
     genai.configure(api_key=api_key)
     logger.info("Gemini API configured.")
 except ValueError as e:
     logger.error(f"Gemini Configuration Error: {e}")
-    sys.exit(1) # Exit if API key is missing
+    sys.exit(1)
 
 # --- FastAPI App Initialization ---
-app = FastAPI(title="Homework Grading API", version="1.0.0")
+app = FastAPI(title="Gradiator API", version="1.0.0")
 
 # --- CORS Configuration ---
-# Update origins based on where your Tailwind UI is served during development/production
 origins = [
     "http://localhost",
-    "http://localhost:3000", # Common React port
-    "http://localhost:5173", # Common Vite port
-    "http://localhost:8080", # Common Vue port
-    # Add your production frontend URL here, e.g., "https://your-app-domain.com"
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Directory for Temporary File Uploads ---
+# --- Directory for File Uploads ---
+UPLOADS_DIR = "uploads"
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 TEMP_UPLOAD_DIR = "temp_uploads"
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
-# --- Your Existing Grading Logic (Keep it as a separate function) ---
-# (No changes needed inside this function itself, assuming it works standalone)
+# Mount the uploads directory
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+
+# --- Pydantic Models ---
+class User(BaseModel):
+    id: Optional[str] = None
+    name: str
+    email: str
+    role: str
+
+class Subject(BaseModel):
+    id: Optional[str] = None
+    title: str
+    description: str
+    code: str
+    imageUrl: Optional[str] = None
+
+class Assignment(BaseModel):
+    id: Optional[str] = None
+    title: str
+    subjectId: str
+    description: str
+    dueDate: str
+    type: str
+    status: str
+    maxGrade: int
+    criteria: Optional[str] = None
+    files: Optional[List[str]] = None
+    submissions: Optional[List[Dict[str, Any]]] = None
+    appealDeadline: Optional[str] = None
+    hasAppeal: Optional[bool] = None
+
+class Material(BaseModel):
+    id: Optional[str] = None
+    title: str
+    subjectId: str
+    description: str
+    type: str
+    fileUrl: str
+    dateAdded: str
+
+class SubmissionCreate(BaseModel):
+    studentId: str
+    studentName: str
+    files: List[str]
+
+class AppealCreate(BaseModel):
+    reason: str
+
+class GradeSubmission(BaseModel):
+    grade: int
+    feedback: str
+
+# --- API Endpoints ---
+
+# User endpoints
+@app.get("/api/users", response_model=List[Dict[str, Any]])
+async def get_all_users():
+    return db.get_users()
+
+@app.get("/api/users/{user_id}", response_model=Dict[str, Any])
+async def get_user(user_id: str):
+    user = db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
+    return user
+
+@app.post("/api/users", response_model=Dict[str, Any])
+async def create_user(user: User):
+    return db.save_user(user.dict())
+
+@app.put("/api/users/{user_id}", response_model=Dict[str, Any])
+async def update_user(user_id: str, user: User):
+    if user_id != user.id and user.id is not None:
+        raise HTTPException(status_code=400, detail="User ID in path must match User ID in body")
+    user_dict = user.dict()
+    user_dict["id"] = user_id
+    return db.save_user(user_dict)
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: str):
+    success = db.delete_user(user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
+    return {"message": f"User with ID {user_id} deleted successfully"}
+
+# Subject endpoints
+@app.get("/api/subjects", response_model=List[Dict[str, Any]])
+async def get_all_subjects():
+    return db.get_subjects()
+
+@app.get("/api/subjects/{subject_id}", response_model=Dict[str, Any])
+async def get_subject(subject_id: str):
+    subject = db.get_subject_by_id(subject_id)
+    if not subject:
+        raise HTTPException(status_code=404, detail=f"Subject with ID {subject_id} not found")
+    return subject
+
+@app.post("/api/subjects", response_model=Dict[str, Any])
+async def create_subject(subject: Subject):
+    return db.save_subject(subject.dict())
+
+@app.put("/api/subjects/{subject_id}", response_model=Dict[str, Any])
+async def update_subject(subject_id: str, subject: Subject):
+    if subject_id != subject.id and subject.id is not None:
+        raise HTTPException(status_code=400, detail="Subject ID in path must match Subject ID in body")
+    subject_dict = subject.dict()
+    subject_dict["id"] = subject_id
+    return db.save_subject(subject_dict)
+
+# Assignment endpoints
+@app.get("/api/assignments", response_model=List[Dict[str, Any]])
+async def get_all_assignments():
+    return db.get_assignments()
+
+@app.get("/api/assignments/{assignment_id}", response_model=Dict[str, Any])
+async def get_assignment(assignment_id: str):
+    assignment = db.get_assignment_by_id(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail=f"Assignment with ID {assignment_id} not found")
+    return assignment
+
+@app.get("/api/subjects/{subject_id}/assignments", response_model=List[Dict[str, Any]])
+async def get_assignments_for_subject(subject_id: str):
+    return db.get_assignments_for_subject(subject_id)
+
+@app.post("/api/assignments", response_model=Dict[str, Any])
+async def create_assignment(
+    title: str = Form(...),
+    subject_id: str = Form(...),
+    description: str = Form(...),
+    due_date: str = Form(...),
+    assignment_type: str = Form(...),
+    max_grade: int = Form(...),
+    criteria: str = Form(None),
+    task_file: Optional[UploadFile] = File(None)
+):
+    # Save task file if provided
+    files = []
+    if task_file:
+        file_extension = os.path.splitext(task_file.filename)[1]
+        file_name = f"assignment_{uuid.uuid4().hex}{file_extension}"
+        file_path = os.path.join(UPLOADS_DIR, file_name)
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(task_file.file, buffer)
+        
+        files.append(f"/uploads/{file_name}")
+    
+    assignment_data = {
+        "title": title,
+        "subjectId": subject_id,
+        "description": description,
+        "dueDate": due_date,
+        "type": assignment_type,
+        "status": "upcoming",
+        "maxGrade": max_grade,
+        "criteria": criteria,
+        "files": files,
+        "submissions": [],
+        "appealDeadline": None  # Will be calculated when the assignment is due
+    }
+    
+    return db.save_assignment(assignment_data)
+
+@app.put("/api/assignments/{assignment_id}", response_model=Dict[str, Any])
+async def update_assignment(assignment_id: str, assignment: Assignment):
+    if assignment_id != assignment.id and assignment.id is not None:
+        raise HTTPException(status_code=400, detail="Assignment ID in path must match Assignment ID in body")
+    assignment_dict = assignment.dict(exclude_unset=True)
+    assignment_dict["id"] = assignment_id
+    return db.save_assignment(assignment_dict)
+
+# Material endpoints
+@app.get("/api/materials", response_model=List[Dict[str, Any]])
+async def get_all_materials():
+    return db.get_materials()
+
+@app.get("/api/materials/{material_id}", response_model=Dict[str, Any])
+async def get_material(material_id: str):
+    material = db.get_material_by_id(material_id)
+    if not material:
+        raise HTTPException(status_code=404, detail=f"Material with ID {material_id} not found")
+    return material
+
+@app.get("/api/subjects/{subject_id}/materials", response_model=List[Dict[str, Any]])
+async def get_materials_for_subject(subject_id: str):
+    return db.get_materials_for_subject(subject_id)
+
+@app.post("/api/materials", response_model=Dict[str, Any])
+async def create_material(
+    title: str = Form(...),
+    subject_id: str = Form(...),
+    description: str = Form(...),
+    material_type: str = Form(...),
+    file: UploadFile = File(...)
+):
+    # Save the uploaded file
+    file_extension = os.path.splitext(file.filename)[1]
+    file_name = f"material_{uuid.uuid4().hex}{file_extension}"
+    file_path = os.path.join(UPLOADS_DIR, file_name)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    material_data = {
+        "title": title,
+        "subjectId": subject_id,
+        "description": description,
+        "type": material_type,
+        "fileUrl": f"/uploads/{file_name}",
+        "dateAdded": datetime.now().isoformat()
+    }
+    
+    return db.save_material(material_data)
+
+# Submission endpoints
+@app.get("/api/submissions/{submission_id}", response_model=Dict[str, Any])
+async def get_submission(submission_id: str):
+    submission = db.get_submission_by_id(submission_id)
+    if not submission:
+        raise HTTPException(status_code=404, detail=f"Submission with ID {submission_id} not found")
+    return submission
+
+@app.get("/api/assignments/{assignment_id}/submissions", response_model=List[Dict[str, Any]])
+async def get_submissions_for_assignment(assignment_id: str):
+    return db.get_submissions_for_assignment(assignment_id)
+
+@app.get("/api/students/{student_id}/submissions", response_model=List[Dict[str, Any]])
+async def get_submissions_by_student(student_id: str):
+    return db.get_submissions_by_student(student_id)
+
+@app.post("/api/assignments/{assignment_id}/submit", response_model=Dict[str, Any])
+async def submit_assignment(
+    assignment_id: str,
+    student_id: str = Form(...),
+    student_name: str = Form(...),
+    files: List[UploadFile] = File(...)
+):
+    # Save the uploaded files
+    file_urls = []
+    for file in files:
+        file_extension = os.path.splitext(file.filename)[1]
+        file_name = f"submission_{uuid.uuid4().hex}{file_extension}"
+        file_path = os.path.join(UPLOADS_DIR, file_name)
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        file_urls.append(f"/uploads/{file_name}")
+    
+    submission_data = {
+        "studentId": student_id,
+        "studentName": student_name,
+        "files": file_urls
+    }
+    
+    try:
+        return db.submit_assignment(assignment_id, submission_data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@app.post("/api/submissions/{submission_id}/grade", response_model=Dict[str, Any])
+async def grade_submission(submission_id: str, grade_data: GradeSubmission):
+    try:
+        return db.grade_submission(submission_id, grade_data.grade, grade_data.feedback)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+# Appeal endpoints
+@app.post("/api/submissions/{submission_id}/appeal", response_model=Dict[str, Any])
+async def create_appeal(submission_id: str, appeal_data: AppealCreate):
+    try:
+        return db.submit_appeal(submission_id, appeal_data.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/submissions/{submission_id}/review-appeal", response_model=Dict[str, Any])
+async def review_appeal(submission_id: str, review_data: GradeSubmission):
+    try:
+        return db.review_appeal(submission_id, review_data.grade, review_data.feedback)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+# --- Keep existing AI grading endpoint but with modified code ---
 def grade_homework_with_task_file(task_path, solution_path, criteria):
     """
     Sends task file (PDF/Image) and solution image to Gemini for grading.
-    (Your existing function code goes here - Copied from your provided script)
     """
-    task_file_data = None
-    solution_img_data = None
-    uploaded_task_file = None
-
+    # ... keep existing code (grading function implementation)
     try:
         logger.info(f"Grading - Processing task file: {task_path}")
         file_extension = os.path.splitext(task_path)[1].lower()
@@ -78,12 +359,10 @@ def grade_homework_with_task_file(task_path, solution_path, criteria):
             logger.info("Grading - Uploading task PDF file...")
             mime_type, _ = mimetypes.guess_type(task_path)
             if not mime_type: mime_type = 'application/pdf'
-            # Potential Blocking Call: Consider running in threadpool for high concurrency
             uploaded_task_file = genai.upload_file(path=task_path, mime_type=mime_type)
             task_file_data = uploaded_task_file
             logger.info(f"Grading - Task PDF uploaded: {uploaded_task_file.name}")
         else:
-            # Return error dict, will be handled by the endpoint
             return {"error": f"Unsupported task file type: {file_extension}"}
 
         logger.info(f"Grading - Loading solution image: {solution_path}")
@@ -92,8 +371,7 @@ def grade_homework_with_task_file(task_path, solution_path, criteria):
 
         model = genai.GenerativeModel('gemini-1.5-flash')
 
-        # --- Prompts (Keep your existing prompts) ---
-        prompt_part1 = "..." # Your prompt part 1
+        prompt_part1 = "You are an AI grader for education assignments. Please grade the following solution according to the provided criteria."
         prompt_part2 = f"\n**Grading Criteria:**\n{criteria}\n\n**Student's Solution Image:**\n[Image below]"
         prompt_part3 = """
         Please provide the feedback for the solution in the following JSON format:
@@ -110,7 +388,6 @@ def grade_homework_with_task_file(task_path, solution_path, criteria):
         ]
 
         logger.info("Grading - Sending request to Gemini API...")
-        # Potential Blocking Call: Consider running in threadpool
         response = model.generate_content(content_list)
         logger.info("Grading - Gemini Response Received.")
 
@@ -123,7 +400,7 @@ def grade_homework_with_task_file(task_path, solution_path, criteria):
             if "score" in result and "feedback" in result:
                 result["score"] = int(result["score"])
                 logger.info(f"Grading - Successfully parsed score: {result['score']}")
-                return result # Success
+                return result
             else:
                 logger.warning("Grading - Gemini response missing 'score' or 'feedback'.")
                 return {"error": "Gemini response did not contain 'score' and 'feedback' keys.", "raw_response": response_text}
@@ -137,13 +414,7 @@ def grade_homework_with_task_file(task_path, solution_path, criteria):
     except Exception as e:
         logger.error(f"Grading - An unexpected error occurred: {e}", exc_info=True)
         return {"error": f"An unexpected error occurred during grading: {e}"}
-    finally:
-        # Cleanup of uploaded file reference (optional, Gemini might handle this)
-        # if uploaded_task_file: try: genai.delete_file(...) etc.
-        pass
 
-
-# --- API Endpoint Definition ---
 @app.post("/api/grade", summary="Grade Homework Submission")
 async def grade_homework_endpoint(
     task_file: UploadFile = File(..., description="The homework task file (PDF or Image)"),
@@ -155,107 +426,56 @@ async def grade_homework_endpoint(
     Processes the files using the Gemini API based on the criteria.
     Returns a JSON object with the calculated 'score' and 'feedback'.
     """
+    # ... keep existing code (API endpoint implementation)
     logger.info(f"Endpoint /api/grade received request. Task: {task_file.filename}, Solution: {solution_file.filename}")
 
-    # Create temporary paths for saving uploaded files
-    # Using unique names to avoid collisions if multiple requests happen concurrently
     temp_task_path = os.path.join(TEMP_UPLOAD_DIR, f"task_{os.urandom(8).hex()}_{task_file.filename}")
     temp_solution_path = os.path.join(TEMP_UPLOAD_DIR, f"solution_{os.urandom(8).hex()}_{solution_file.filename}")
-    logger.debug(f"Temp task path: {temp_task_path}")
-    logger.debug(f"Temp solution path: {temp_solution_path}")
 
     try:
-        # Save the uploaded task file temporarily
-        try:
-            with open(temp_task_path, "wb") as buffer:
-                shutil.copyfileobj(task_file.file, buffer)
-            logger.info(f"Temporarily saved task file to {temp_task_path}")
-        except Exception as e:
-            logger.error(f"Failed to save temporary task file {temp_task_path}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Could not save task file for processing.")
-        finally:
-            await task_file.close() # Close the upload stream
+        with open(temp_task_path, "wb") as buffer:
+            shutil.copyfileobj(task_file.file, buffer)
+        logger.info(f"Temporarily saved task file to {temp_task_path}")
+        await task_file.close()
 
-        # Save the uploaded solution file temporarily
-        try:
-            with open(temp_solution_path, "wb") as buffer:
-                shutil.copyfileobj(solution_file.file, buffer)
-            logger.info(f"Temporarily saved solution file to {temp_solution_path}")
-        except Exception as e:
-            logger.error(f"Failed to save temporary solution file {temp_solution_path}: {e}", exc_info=True)
-            # Clean up already saved task file if solution saving fails
-            if os.path.exists(temp_task_path): os.remove(temp_task_path)
-            raise HTTPException(status_code=500, detail="Could not save solution file for processing.")
-        finally:
-            await solution_file.close() # Close the upload stream
+        with open(temp_solution_path, "wb") as buffer:
+            shutil.copyfileobj(solution_file.file, buffer)
+        logger.info(f"Temporarily saved solution file to {temp_solution_path}")
+        await solution_file.close()
 
-        # --- Call your existing grading function ---
-        # Pass the paths of the *saved temporary files*
-        # Note: This call might block if grade_homework_with_task_file has long sync operations.
-        # For high load, consider running it in a thread pool:
-        # import asyncio
-        # loop = asyncio.get_event_loop()
-        # grading_result = await loop.run_in_executor(None, grade_homework_with_task_file, temp_task_path, temp_solution_path, criteria)
         grading_result = grade_homework_with_task_file(temp_task_path, temp_solution_path, criteria)
 
-
-        # --- Process the result ---
         if "error" in grading_result:
             logger.warning(f"Grading function returned an error: {grading_result['error']}")
-            # Determine appropriate status code (e.g., 400 for bad input like unsupported file type, 500 for internal errors)
             status_code = 400 if "Unsupported task file type" in grading_result["error"] or "File not found" in grading_result["error"] else 500
-            # Return the error details from the grading function
             raise HTTPException(status_code=status_code, detail=grading_result)
         else:
             logger.info(f"Grading successful for task: {task_file.filename}, solution: {solution_file.filename}")
             print(grading_result)
-            return grading_result # FastAPI automatically converts dict to JSON
+            return grading_result
 
     except HTTPException as http_exc:
-         # Re-raise HTTPExceptions so FastAPI handles them correctly
-         raise http_exc
+        raise http_exc
     except Exception as e:
-        # Catch any unexpected errors during file handling or function call
         logger.error(f"Unexpected error in /api/grade endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected server error occurred: {e}")
-
     finally:
-        # --- Clean up temporary files ---
-        logger.debug("Cleaning up temporary files...")
         if os.path.exists(temp_task_path):
             try:
                 os.remove(temp_task_path)
-                logger.debug(f"Removed temp task file: {temp_task_path}")
-            except OSError as e:
-                 logger.warning(f"Could not remove temp task file {temp_task_path}: {e}")
+            except OSError:
+                pass
         if os.path.exists(temp_solution_path):
             try:
                 os.remove(temp_solution_path)
-                logger.debug(f"Removed temp solution file: {temp_solution_path}")
-            except OSError as e:
-                 logger.warning(f"Could not remove temp solution file {temp_solution_path}: {e}")
+            except OSError:
+                pass
 
-
-# --- Optional: Root endpoint for testing API is running ---
-@app.get("/", summary="API Root", include_in_schema=False)
+# API Root endpoint
+@app.get("/", summary="API Root")
 def read_root():
-    return {"message": "Homework Grading API is running!"}
+    return {"message": "Gradiator API is running!", "version": "1.0.0"}
 
-@app.post("/api/assignments")
-async def create_assignment(
-    title: str = Form(...),
-    criteria: str = Form(...),
-    task_file: UploadFile = File(...),
-):
-    # Save task file
-    task_path = os.path.join(TEMP_UPLOAD_DIR, f"task_{uuid.uuid4().hex}{os.path.splitext(task_file.filename)[1]}")
-    
-    with open(task_path, "wb") as buffer:
-        shutil.copyfileobj(task_file.file, buffer)
-    
-    return {
-        "id": uuid.uuid4().hex,
-        "title": title,
-        "criteria": criteria,
-        "file_url": f"/uploads/{os.path.basename(task_path)}"
-    }
+# Run the server if this file is executed directly
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
