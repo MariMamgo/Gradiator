@@ -294,6 +294,11 @@ class ApiService {
     formData.append("solution_file", solutionFile);
     formData.append("criteria", criteria);
     
+    console.log("Sending grading request to:", `${this.apiUrl}/api/grade`);
+    console.log("Task file:", taskFile.name, "Size:", taskFile.size);
+    console.log("Solution file:", solutionFile.name, "Size:", solutionFile.size);
+    console.log("Criteria length:", criteria.length);
+    
     const response = await fetch(`${this.apiUrl}/api/grade`, {
       method: "POST",
       body: formData,
@@ -301,10 +306,13 @@ class ApiService {
     
     if (!response.ok) {
       const errorData = await response.json();
+      console.error("Grading error response:", errorData);
       throw new Error(errorData.detail?.error || `Failed to grade homework: ${response.statusText}`);
     }
     
-    return response.json();
+    const result = await response.json();
+    console.log("Grading result:", result);
+    return result;
   }
 }
 
